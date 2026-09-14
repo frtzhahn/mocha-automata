@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-syntax:
+    name: Validate Syntax (Node.js ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Check Disceptatio Syntax
+        run: |
+          cd packages/disceptatio
+          npm install
+          node --check bot.js
+
+      - name: Check Eeper Syntax
+        run: |
+          cd packages/eeper
+          npm install
+          node --check bot.js
+
+      - name: Check Mocha Copiloto Syntax
+        run: |
+          cd packages/mocha-copiloto
+          npm install
+          node --check bot.js
