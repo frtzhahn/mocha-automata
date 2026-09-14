@@ -77,7 +77,7 @@ A low-energy, cat companion and conversational peer.
 
 ### 3. `packages/mocha-copiloto`
 My curated Obsidian study buddy and personal knowledge management companion.
-- **Obsidian Vault Integration:** Read-only indexing of notes (`sample-obsidian-notes/`) and atomic section writing (`/write`).
+- **Obsidian Vault Integration:** Read-only indexing of notes (`mocha-vault/` or external vault) and atomic section writing (`/write`).
 - **Dynamic Persona Switcher (`/persona switch`):** Hot-swappable communication calibrations (`mocha`, `academic`, `friendly`) sourced dynamically from markdown frontmatter templates.
 - **The Memo Engine (`/memo`):** Structured research scratchpad management (`create`, `append`, `read`) with frontmatter AST synchronization.
 - **Interactive Quiz Engine (`/quiz`):** Two-stage concept and coding evaluation with TTL expiration.
@@ -99,9 +99,16 @@ git clone https://github.com/frtzhahn/mocha-automata.git
 cd mocha-automata
 ```
 
-### 2. Select and Configure a Package
-Navigate to the desired agent directory:
+### 2. Install Workspace Dependencies
+Install dependencies across all packages in a single command from the monorepo root:
 ```bash
+npm install
+```
+
+### 3. Configure Your Agent
+Navigate to your chosen agent package and copy the environment template:
+```bash
+# Example: Configuring mocha-copiloto
 cd packages/mocha-copiloto
 cp .env.example .env
 ```
@@ -112,14 +119,21 @@ DISCORD_BOT_TOKEN="your-bot-token"
 DISCORD_CLIENT_ID="your-client-id"
 OPENROUTER_API_KEY="your-openrouter-key"
 LLM_MODEL="openrouter/free"
-VAULT_DIR="/path/to/your/obsidian/vault"
+VISION_MODEL="openrouter/free"
+VAULT_DIR="./mocha-vault"
 LOG_CHANNELS="123456789012345678"
 ```
 
-### 3. Install Dependencies and Run
+### 4. Run the Agent
+Start the agent from within its directory:
 ```bash
-npm install
-node bot.js
+npm start
+```
+Or launch any agent directly from the monorepo root:
+```bash
+npm run start:mocha
+# or: npm run start:disceptatio
+# or: npm run start:eeper
 ```
 
 ---

@@ -3,9 +3,12 @@ import OpenAI from "openai";
 import dotenv from "dotenv";
 import fs from "fs/promises";
 import path from "path";
+import { fileURLToPath } from "url";
 
 // Load environment variables from .env
 dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ============================================================================
 // 1. Environment & Client Verification
@@ -16,7 +19,7 @@ const {
   OPENROUTER_API_KEY,
   BEBU_DISCORD_ID,
   BEBU_ID,
-  MEMORY_DIR_PATH = "./eeper-memory",
+  MEMORY_DIR_PATH = path.join(__dirname, "eeper-memory"),
   VISION_MODEL = "openrouter/free",
 } = process.env;
 
@@ -33,7 +36,9 @@ let liveFreeModels = ["openrouter/free"];
 
 async function updateLiveFreeModels() {
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/models");
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      signal: AbortSignal.timeout(8000),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
 
@@ -97,8 +102,9 @@ if (!OPENROUTER_API_KEY) {
 const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: OPENROUTER_API_KEY,
+  timeout: 30000,
   defaultHeaders: {
-    "HTTP-Referer": "https://github.com/frtzhahn/eeper-discord",
+    "HTTP-Referer": "https://github.com/frtzhahn/mocha-automata",
     "X-Title": "Eeper Discord Companion",
   },
 });
@@ -112,6 +118,10 @@ const client = new Client({
   ],
   partials: [Partials.Channel, Partials.Message],
 });
+
+// Gateway connection error handling
+client.on("error", (err) => console.error("[Gateway Error]:", err));
+client.on("shardError", (err, shardId) => console.error(`[Shard ${shardId} Error]:`, err));
 
 // ============================================================================
 // 2. In-Memory Sliding Context (Max 10 messages per channel)
