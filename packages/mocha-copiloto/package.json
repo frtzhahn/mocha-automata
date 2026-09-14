@@ -1,0 +1,20 @@
+{
+  "name": "mocha-copiloto",
+  "version": "1.0.0",
+  "description": "Mocha El Copiloto - Low-energy Gen-Z study partner and Obsidian vault assistant",
+  "type": "module",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7",
+    "fast-glob": "^3.3.3",
+    "gray-matter": "^4.0.3",
+    "openai": "^4.86.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

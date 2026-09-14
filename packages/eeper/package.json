@@ -1,0 +1,18 @@
+{
+  "name": "eeper-discord",
+  "version": "1.0.0",
+  "description": "Minimal MVP for Eeper, a custom Discord companion bot using Node.js ESM and OpenRouter",
+  "type": "module",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7",
+    "openai": "^4.86.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
