@@ -11,11 +11,15 @@ import OpenAI from "openai";
 import dotenv from "dotenv";
 import fg from "fast-glob";
 import fs from "fs/promises";
+import fsSync from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import matter from "gray-matter";
 
 // Load environment configuration
 dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ============================================================================
 // 1. Configuration & Vault Path Definitions
@@ -27,7 +31,7 @@ const {
   OPENROUTER_API_KEY,
   GIPHY_API_KEY = "",
   VISION_MODEL = "openrouter/free",
-  VAULT_DIR = "./vault",
+  VAULT_DIR = "",
   LOG_CHANNELS = "",
 } = process.env;
 
@@ -46,13 +50,26 @@ if (!OPENROUTER_API_KEY) {
   process.exit(1);
 }
 
+const resolvedVaultRoot = VAULT_DIR ? path.resolve(VAULT_DIR) : path.join(__dirname, "mocha-vault");
+
 // Centralized vault paths
 const VAULT_PATHS = {
-  root: path.resolve(process.env.VAULT_DIR || "./vault"),
-  dailySchedules: path.join(path.resolve(process.env.VAULT_DIR || "./vault"), "schdules/daily"),
-  mainNotes: path.join(path.resolve(process.env.VAULT_DIR || "./vault"), "Main-Notes"),
-  schoolNotes: path.join(path.resolve(process.env.VAULT_DIR || "./vault"), "school-notes"),
+  root: resolvedVaultRoot,
+  scheduleCandidates: [
+    path.join(resolvedVaultRoot, "schedules", "daily"),
+    path.join(resolvedVaultRoot, "schdules", "daily"),
+  ],
+  mainNotes: path.join(resolvedVaultRoot, "Main-Notes"),
+  schoolNotes: path.join(resolvedVaultRoot, "school-notes"),
 };
+
+/**
+ * Validates that childPath is strictly contained inside parentDir.
+ */
+function isPathInside(childPath, parentDir) {
+  const rel = path.relative(path.resolve(parentDir), path.resolve(childPath));
+  return Boolean(rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+}
 
 // Defensive environment sanitization for model identifier
 const rawModel = process.env.LLM_MODEL || "openrouter/free";
@@ -68,8 +85,9 @@ const LLM_MODEL = cleanModel;
 const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: OPENROUTER_API_KEY,
+  timeout: 30000,
   defaultHeaders: {
-    "HTTP-Referer": "https://github.com/frtzhahn/mocha-copiloto",
+    "HTTP-Referer": "https://github.com/frtzhahn/mocha-automata",
     "X-Title": "Mocha El Copiloto Study Assistant",
   },
 });
@@ -84,13 +102,17 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 });
 
+// Gateway connection error handling
+client.on("error", (err) => console.error("[Gateway Error]:", err));
+client.on("shardError", (err, shardId) => console.error(`[Shard ${shardId} Error]:`, err));
+
 // ============================================================================
 // 2. Dedicated Persona Directory, Memo Store & Dynamic Loader
 // ============================================================================
 
-const PERSONAS_DIR = path.resolve("./mocha-vault/personas");
-const MEMO_DIR = path.resolve("./mocha-vault/memo");
-const DEBRIEFS_DIR = path.resolve("./mocha-vault/debriefs");
+const PERSONAS_DIR = path.join(resolvedVaultRoot, "personas");
+const MEMO_DIR = path.join(resolvedVaultRoot, "memo");
+const DEBRIEFS_DIR = path.join(resolvedVaultRoot, "debriefs");
 
 let activePersonaSlug = "mocha";
 
@@ -218,7 +240,9 @@ let liveFreeModels = ["openrouter/free"];
  */
 async function updateLiveFreeModels() {
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/models");
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      signal: AbortSignal.timeout(8000),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
 
@@ -399,9 +423,11 @@ async function getVaultNotes() {
 
   const mainPattern = path.join(VAULT_PATHS.mainNotes, "**/*.md").replace(/\\/g, "/");
   const schoolPattern = path.join(VAULT_PATHS.schoolNotes, "**/*.md").replace(/\\/g, "/");
-  const dailyPattern = path.join(VAULT_PATHS.dailySchedules, "**/*.md").replace(/\\/g, "/");
+  const schedulePatterns = VAULT_PATHS.scheduleCandidates.map((d) =>
+    path.join(d, "**/*.md").replace(/\\/g, "/")
+  );
 
-  const files = await fg([mainPattern, schoolPattern, dailyPattern], { onlyFiles: true });
+  const files = await fg([mainPattern, schoolPattern, ...schedulePatterns], { onlyFiles: true });
   const relativeList = files.map((f) => path.relative(VAULT_PATHS.root, f));
 
   noteIndexCache.clear();
@@ -435,7 +461,7 @@ function resolveNotePath(noteInput) {
   }
 
   const fullPath = path.resolve(VAULT_PATHS.root, targetRel);
-  if (!fullPath.startsWith(VAULT_PATHS.root)) {
+  if (!isPathInside(fullPath, VAULT_PATHS.root)) {
     throw new Error("security exception: directory traversal attempted.");
   }
 
@@ -508,23 +534,25 @@ async function insertIntoSection(relativePath, targetHeading, newText) {
 }
 
 /**
- * Locates today's daily schedule note and computes completion statistics.
+ * Locates the daily schedule note for targetDate (or today) and computes completion statistics.
  */
-async function getDailyScheduleStats() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const today = `${year}-${month}-${day}`;
+async function getDailyScheduleStats(targetDate = null) {
+  const dateStr = targetDate || formatDateString(new Date());
 
-  const pattern = path.join(VAULT_PATHS.dailySchedules, `${today}*.md`).replace(/\\/g, "/");
-  const matches = await fg([pattern], { onlyFiles: true });
+  let filePath = null;
+  for (const dir of VAULT_PATHS.scheduleCandidates) {
+    const pattern = path.join(dir, `${dateStr}*.md`).replace(/\\/g, "/");
+    const matches = await fg([pattern], { onlyFiles: true });
+    if (matches.length > 0) {
+      filePath = matches[0];
+      break;
+    }
+  }
 
-  if (matches.length === 0) {
+  if (!filePath) {
     return null;
   }
 
-  const filePath = matches[0];
   const content = await fs.readFile(filePath, "utf-8");
 
   const uncheckedMatches = content.match(/^\s*-\s*\[\s*\]/gm) || [];
@@ -539,7 +567,7 @@ async function getDailyScheduleStats() {
 
   return {
     filePath,
-    date: today,
+    date: dateStr,
     uncheckedCount: uncheckedMatches.length,
     checkedCount: checkedMatches.length,
     totalCount: uncheckedMatches.length + checkedMatches.length,
@@ -899,7 +927,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.editReply(reply);
     } catch (err) {
       console.error("[Study Error]:", err.message);
-      await interaction.editReply(`couldn't study that note... ${err.message.toLowerCase()} 💀`);
+      await interaction.editReply("couldn't study that note... verify that the note and topic exist 💀");
     }
     return;
   }
@@ -961,7 +989,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.editReply(displayQuiz);
     } catch (err) {
       console.error("[Quiz Error]:", err.message);
-      await interaction.editReply(`failed to generate quiz... ${err.message.toLowerCase()} 💀`);
+      await interaction.editReply("failed to generate quiz... check the note title or try again 💀");
     }
     return;
   }
@@ -982,7 +1010,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     } catch (err) {
       console.error("[Write Error]:", err.message);
       await interaction.editReply(
-        `couldn't write task... ${err.message.toLowerCase()} 💀`
+        "couldn't write task... heading or note not found 💀"
       );
     }
     return;
@@ -1074,8 +1102,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const sub = interaction.options.getSubcommand();
     if (sub === "switch") {
       await interaction.deferReply();
-      const targetName = interaction.options.getString("name", true).trim().toLowerCase();
+      const targetName = path.basename(interaction.options.getString("name", true).trim().toLowerCase(), ".md");
       const targetFile = path.resolve(PERSONAS_DIR, `${targetName}.md`);
+      if (!isPathInside(targetFile, PERSONAS_DIR)) {
+        throw new Error("security exception: invalid persona path.");
+      }
 
       try {
         await fs.access(targetFile);
@@ -1092,7 +1123,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } catch (err) {
         console.error("[Persona Switch Error]:", err.message);
         await interaction.editReply(
-          `persona "${targetName}" doesn't exist in ${PERSONAS_DIR}. check /persona switch autocomplete 💀`
+          `persona "${targetName}" doesn't exist. check /persona switch autocomplete 💀`
         );
       }
       return;
@@ -1110,14 +1141,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const text = interaction.options.getString("text", true).trim();
 
       try {
-        const slug = title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "") || "untitled-memo";
+        const slug = path.basename(
+          title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "untitled-memo",
+          ".md"
+        );
 
         const memoPath = path.resolve(MEMO_DIR, `${slug}.md`);
-        if (!memoPath.startsWith(MEMO_DIR)) {
-          throw new Error("security exception: invalid memo filename.");
+        if (!isPathInside(memoPath, MEMO_DIR)) {
+          throw new Error("security exception: invalid memo path.");
         }
 
         const dateStr = formatDateString(new Date());
@@ -1140,7 +1174,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.editReply(`created memo **${slug}.md** and logged initial entry.`);
       } catch (err) {
         console.error("[Memo Create Error]:", err.message);
-        await interaction.editReply(`failed to create memo: ${err.message.toLowerCase()} 💀`);
+        await interaction.editReply("failed to create memo... check the filename 💀");
       }
       return;
     }
@@ -1152,12 +1186,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const text = interaction.options.getString("text", true).trim();
 
       try {
-        const slug = memoInput.endsWith(".md")
-          ? path.basename(memoInput, ".md")
-          : memoInput;
+        const slug = path.basename(memoInput, ".md");
         const memoPath = path.resolve(MEMO_DIR, `${slug}.md`);
-
-        if (!memoPath.startsWith(MEMO_DIR)) {
+        if (!isPathInside(memoPath, MEMO_DIR)) {
           throw new Error("security exception: invalid memo path.");
         }
 
@@ -1194,7 +1225,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.editReply(`appended task to **${slug}.md**.`);
       } catch (err) {
         console.error("[Memo Append Error]:", err.message);
-        await interaction.editReply(`couldn't append to memo: ${err.message.toLowerCase()} 💀`);
+        await interaction.editReply("couldn't append to memo... check if memo exists 💀");
       }
       return;
     }
@@ -1205,12 +1236,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const memoInput = interaction.options.getString("memo", true).trim();
 
       try {
-        const slug = memoInput.endsWith(".md")
-          ? path.basename(memoInput, ".md")
-          : memoInput;
+        const slug = path.basename(memoInput, ".md");
         const memoPath = path.resolve(MEMO_DIR, `${slug}.md`);
-
-        if (!memoPath.startsWith(MEMO_DIR)) {
+        if (!isPathInside(memoPath, MEMO_DIR)) {
           throw new Error("security exception: invalid memo path.");
         }
 
@@ -1231,7 +1259,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
       } catch (err) {
         console.error("[Memo Read Error]:", err.message);
-        await interaction.editReply(`couldn't read memo: ${err.message.toLowerCase()} 💀`);
+        await interaction.editReply("couldn't read memo... check if memo exists 💀");
       }
       return;
     }
@@ -1249,7 +1277,9 @@ async function fetchReactionGif(query) {
   if (!GIPHY_API_KEY || !query) return null;
   try {
     const url = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query)}&limit=1&rating=pg-13`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(5000),
+    });
     if (!res.ok) return null;
     const json = await res.json();
     return json.data?.[0]?.images?.original?.url || null;
@@ -1497,15 +1527,20 @@ async function checkMidnightDebrief() {
       const yesterdayStr = formatDateString(yesterday);
 
       // Locate yesterday's daily schedule note
-      const pattern = path.join(VAULT_PATHS.dailySchedules, `${yesterdayStr}*.md`).replace(/\\/g, "/");
-      const matches = await fg([pattern], { onlyFiles: true });
+      let schedulePath = null;
+      for (const dir of VAULT_PATHS.scheduleCandidates) {
+        const pattern = path.join(dir, `${yesterdayStr}*.md`).replace(/\\/g, "/");
+        const matches = await fg([pattern], { onlyFiles: true });
+        if (matches.length > 0) {
+          schedulePath = matches[0];
+          break;
+        }
+      }
 
-      if (matches.length === 0) {
+      if (!schedulePath) {
         console.log(`[Midnight Debrief] No schedule note found for ${yesterdayStr}. Skipping.`);
         return;
       }
-
-      const schedulePath = matches[0];
       const content = await fs.readFile(schedulePath, "utf-8");
 
       const checked = (content.match(/^\s*-\s*\[[xX]\]\s*([^\n]+)/gm) || []).map((t) => t.trim());
@@ -1584,7 +1619,7 @@ client.once(Events.ClientReady, async () => {
   console.log("==================================================");
   console.log(`[Gateway] Mocha El Copiloto online! Logged in as ${client.user.tag}`);
   console.log(`[Vault] Root: ${VAULT_PATHS.root}`);
-  console.log(`[Vault] Daily: ${VAULT_PATHS.dailySchedules}`);
+  console.log(`[Vault] Daily Candidates: ${VAULT_PATHS.scheduleCandidates.join(", ")}`);
   console.log(`[Vault] Main: ${VAULT_PATHS.mainNotes}`);
   console.log(`[Vault] School: ${VAULT_PATHS.schoolNotes}`);
   console.log(`[Model] Primary: ${cleanModel} | Vision: ${VISION_MODEL}`);

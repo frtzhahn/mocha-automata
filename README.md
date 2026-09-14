@@ -17,41 +17,44 @@ This is built specifically for my own local first autonomy, minimal resource con
 The system operates as a lightweight local harness (mini agent harness) that maintains deterministic control over all LLM interactions, token ceilings, and file modifications:
 
 ```mermaid
-graph TD
-    %% Define Styles
-    classDef client fill:#5865F2,stroke:#333,stroke-width:2px,color:#fff;
-    classDef harness fill:#2C2F33,stroke:#7289DA,stroke-width:2px,color:#fff;
-    classDef module fill:#23272A,stroke:#99AAB5,stroke-width:1px,color:#fff;
-    classDef safety fill:#faa61a,stroke:#333,stroke-width:1px,color:#fff;
-    classDef external fill:#43b581,stroke:#333,stroke-width:2px,color:#fff;
-    classDef vault fill:#794fc4,stroke:#333,stroke-width:2px,color:#fff;
+flowchart TD
+    %% Theme-Agnostic High-Contrast Node Styles (WCAG AA Compliant)
+    classDef client fill:#5865F2,stroke:#3C45A5,stroke-width:2px,color:#FFFFFF;
+    classDef agent fill:#2B2D31,stroke:#5865F2,stroke-width:2px,color:#FFFFFF;
+    classDef engine fill:#D97706,stroke:#92400E,stroke-width:2px,color:#FFFFFF;
+    classDef external fill:#059669,stroke:#065F46,stroke-width:2px,color:#FFFFFF;
+    classDef vault fill:#7C3AED,stroke:#5B21B6,stroke-width:2px,color:#FFFFFF;
 
-    %% Elements
-    Clients["**Discord Clients**<br>(Mobile, Desktop, Web Interactions)"]:::client
+    %% Ingress Gateway
+    Clients["<b>Discord Clients</b><br/>(Desktop • Mobile • Web)"]:::client
 
-    subgraph Harness ["Local Node.js Autonomous Harness (Mocha Automata)"]
+    %% Core Harness Boundary (Transparent container renders crisp in Light & Dark mode)
+    subgraph Harness ["<b>Local Node.js Autonomous Harness (Mocha Automata)</b>"]
         direction TB
-        
-        %% Core modules
-        D["**disceptatio**<br>Dialectical Arena"]:::module
-        E["**eeper**<br>Low-Energy Companion"]:::module
-        M["**mocha-copiloto**<br>Vault & Study Partner"]:::module
 
-        %% Safety Engines
-        SS["**Speech Sanitizer & Guardrails**<br>• Strips &lt;think&gt; / plain CoT<br>• Moderation filter leaks"]:::safety
-        VS["**Vault Safety Engine**<br>• Atomic .tmp → rename<br>• Regex heading insertion"]:::safety
+        %% Row 1: Autonomous Agents (Evenly distributed across 3 horizontal columns)
+        D["<b>disceptatio</b><br/>Dialectical Arena"]:::agent
+        E["<b>eeper</b><br/>Study Companion"]:::agent
+        M["<b>mocha-copiloto</b><br/>Vault Assistant"]:::agent
+
+        %% Row 2: Guardrails & Storage
+        SS["<b>Speech Sanitizer & Guardrails</b><br/>• CoT & &lt;think&gt; filter<br/>• Moderation shield"]:::engine
+        VS["<b>Vault Safety Engine</b><br/>• Atomic .tmp → rename<br/>• AST frontmatter sync"]:::engine
+
+        %% Internal Cross-Wiring
+        D & E & M --> SS
+        D & E & M --> VS
     end
-    style Harness fill:#23272A,stroke:#7289DA,stroke-width:2px,stroke-dasharray: 5 5
 
-    OR["**OpenRouter Model Cascade Pool**<br>(Dynamic Free Zero-Cost Discovery)<br>• Nemotron, Ling, Nex-AGI, LFM, etc."]:::external
-    OV["**Obsidian Vault**<br>(Daily Schedules, Memos, Notes)<br>Markdown Frontmatter AST Engine"]:::vault
+    %% Transparent background adapts cleanly to GitHub Light, Dark, and Mobile
+    style Harness fill:none,stroke:#5865F2,stroke-width:2px,stroke-dasharray: 5 5
 
-    %% Connections
+    %% Target Backends
+    OR["<b>OpenRouter Cascade Pool</b><br/>(Free Dynamic Discovery)<br/>Nemotron • Ling • Nex-AGI • LFM"]:::external
+    OV["<b>Obsidian Vault</b><br/>(Local Storage Engine)<br/>Schedules • Memos • Debriefs"]:::vault
+
+    %% Ingress & Egress Connections
     Clients -->|WebSocket Gateway & REST API| Harness
-    
-    D & E & M --> SS
-    D & E & M --> VS
-
     SS -->|HTTPS POST| OR
     VS -->|POSIX FS Syscalls| OV
 ```
@@ -77,7 +80,7 @@ A low-energy, cat companion and conversational peer.
 
 ### 3. `packages/mocha-copiloto`
 My curated Obsidian study buddy and personal knowledge management companion.
-- **Obsidian Vault Integration:** Read-only indexing of notes (`sample-obsidian-notes/`) and atomic section writing (`/write`).
+- **Obsidian Vault Integration:** Read-only indexing of notes (`mocha-vault/` or external vault) and atomic section writing (`/write`).
 - **Dynamic Persona Switcher (`/persona switch`):** Hot-swappable communication calibrations (`mocha`, `academic`, `friendly`) sourced dynamically from markdown frontmatter templates.
 - **The Memo Engine (`/memo`):** Structured research scratchpad management (`create`, `append`, `read`) with frontmatter AST synchronization.
 - **Interactive Quiz Engine (`/quiz`):** Two-stage concept and coding evaluation with TTL expiration.
@@ -99,9 +102,16 @@ git clone https://github.com/frtzhahn/mocha-automata.git
 cd mocha-automata
 ```
 
-### 2. Select and Configure a Package
-Navigate to the desired agent directory:
+### 2. Install Workspace Dependencies
+Install dependencies across all packages in a single command from the monorepo root:
 ```bash
+npm install
+```
+
+### 3. Configure Your Agent
+Navigate to your chosen agent package and copy the environment template:
+```bash
+# Example: Configuring mocha-copiloto
 cd packages/mocha-copiloto
 cp .env.example .env
 ```
@@ -112,14 +122,21 @@ DISCORD_BOT_TOKEN="your-bot-token"
 DISCORD_CLIENT_ID="your-client-id"
 OPENROUTER_API_KEY="your-openrouter-key"
 LLM_MODEL="openrouter/free"
-VAULT_DIR="/path/to/your/obsidian/vault"
+VISION_MODEL="openrouter/free"
+VAULT_DIR="./mocha-vault"
 LOG_CHANNELS="123456789012345678"
 ```
 
-### 3. Install Dependencies and Run
+### 4. Run the Agent
+Start the agent from within its directory:
 ```bash
-npm install
-node bot.js
+npm start
+```
+Or launch any agent directly from the monorepo root:
+```bash
+npm run start:mocha
+# or: npm run start:disceptatio
+# or: npm run start:eeper
 ```
 
 ---

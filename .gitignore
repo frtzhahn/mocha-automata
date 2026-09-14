@@ -10,6 +10,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # Atomic Write Artifacts
 *.bak
@@ -28,7 +29,20 @@ vault/
 # Editor & OS metadata
 .DS_Store
 Thumbs.db
-.obsidian/workspace*
-.obsidian/cache
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+*:Zone.Identifier
+*.swp
+*.swo
+*.swn
+*~
+*.un~
+.netrwhist
+**/.obsidian/
 .idea/
 .vscode/
+
+# Testing & Coverage
+coverage/
+*.lcov

@@ -12,9 +12,12 @@ import dotenv from "dotenv";
 import matter from "gray-matter";
 import fs from "fs/promises";
 import path from "path";
+import { fileURLToPath } from "url";
 
 // Load environment variables
 dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ============================================================================
 // 1. Environment Verification & Validation
@@ -25,7 +28,7 @@ const {
   DISCORD_CLIENT_ID,
   DEBATE_WEBHOOK_URL,
   OPENROUTER_API_KEY,
-  VAULT_DIR = "./",
+  VAULT_DIR = __dirname,
 } = process.env;
 
 // 1. Defensive string parsing (prevents env malformation like LLM_MODEL='LLM_MODEL="openrouter/free"')
@@ -41,7 +44,9 @@ let liveFreeModels = ["openrouter/free"];
 
 async function updateLiveFreeModels() {
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/models");
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      signal: AbortSignal.timeout(8000),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
 
@@ -114,8 +119,9 @@ if (!OPENROUTER_API_KEY) {
 const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: OPENROUTER_API_KEY,
+  timeout: 30000,
   defaultHeaders: {
-    "HTTP-Referer": "https://github.com/frtzhahn/disceptatio",
+    "HTTP-Referer": "https://github.com/frtzhahn/mocha-automata",
     "X-Title": "Disceptatio Dialectical Arena",
   },
 });
@@ -127,6 +133,10 @@ const webhookClient = new WebhookClient({ url: DEBATE_WEBHOOK_URL });
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
+
+// Gateway connection error handling
+client.on("error", (err) => console.error("[Gateway Error]:", err));
+client.on("shardError", (err, shardId) => console.error(`[Shard ${shardId} Error]:`, err));
 
 // Helper for natural pauses between speech turns
 const waitDelay = (ms = 3000) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -140,8 +150,9 @@ const waitDelay = (ms = 3000) => new Promise((resolve) => setTimeout(resolve, ms
  * @param {string} slug - Persona filename slug (e.g. 'marcus', 'nietzsche')
  */
 async function loadPersona(slug) {
+  const safeSlug = path.basename(slug, ".md");
   const resolvedVault = path.resolve(VAULT_DIR);
-  const personaPath = path.join(resolvedVault, "personas", `${slug}.md`);
+  const personaPath = path.join(resolvedVault, "personas", `${safeSlug}.md`);
 
   try {
     const raw = await fs.readFile(personaPath, "utf-8");
@@ -405,7 +416,14 @@ async function archiveDebateToVault({ topic, debaterA, debaterB, transcript }) {
   }
 
   const finalMarkdown = `${frontmatter}\n\n${bodySections.join("\n")}`;
-  await fs.writeFile(filePath, finalMarkdown, "utf-8");
+  const tmpPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    await fs.writeFile(tmpPath, finalMarkdown, "utf-8");
+    await fs.rename(tmpPath, filePath);
+  } catch (err) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw err;
+  }
 
   return { fileName, filePath };
 }
@@ -523,8 +541,8 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.deferReply();
 
       const topic = interaction.options.getString("topic", true);
-      const slugA = interaction.options.getString("debater_a", true);
-      const slugB = interaction.options.getString("debater_b", true);
+      const slugA = path.basename(interaction.options.getString("debater_a", true), ".md");
+      const slugB = path.basename(interaction.options.getString("debater_b", true), ".md");
 
       let debaterA, debaterB;
 
@@ -659,8 +677,7 @@ client.on("interactionCreate", async (interaction) => {
             `**The 3-Round Dialectic is complete.**\n\n` +
             `**Topic:** *"${topic}"*\n` +
             `**Disputants:** ${debaterA.name} & ${debaterB.name}\n\n` +
-            `📁 **Obsidian Note Saved:** \`${fileName}\`\n` +
-            `📍 **Path:** \`${filePath}\``
+            `📁 **Saved to Vault:** \`${fileName}\``
           )
           .setColor(0x2e8b57)
           .setFooter({ text: "Deliberation archived to vault." })
