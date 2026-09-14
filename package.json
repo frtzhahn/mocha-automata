@@ -10,7 +10,10 @@
     "check:all": "node --check packages/disceptatio/bot.js && node --check packages/eeper/bot.js && node --check packages/mocha-copiloto/bot.js",
     "check:disceptatio": "node --check packages/disceptatio/bot.js",
     "check:eeper": "node --check packages/eeper/bot.js",
-    "check:mocha": "node --check packages/mocha-copiloto/bot.js"
+    "check:mocha": "node --check packages/mocha-copiloto/bot.js",
+    "start:disceptatio": "npm --workspace=packages/disceptatio start",
+    "start:eeper": "npm --workspace=packages/eeper start",
+    "start:mocha": "npm --workspace=packages/mocha-copiloto start"
   },
   "engines": {
     "node": ">=18.0.0"

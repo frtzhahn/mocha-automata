@@ -50,18 +50,26 @@ if (!OPENROUTER_API_KEY) {
   process.exit(1);
 }
 
-const defaultVaultRoot = VAULT_DIR ? path.resolve(VAULT_DIR) : path.join(__dirname, "mocha-vault");
-const legacySchedules = path.join(defaultVaultRoot, "schdules", "daily");
-const standardSchedules = path.join(defaultVaultRoot, "schedules", "daily");
-const resolvedDaily = fsSync.existsSync(legacySchedules) ? legacySchedules : standardSchedules;
+const resolvedVaultRoot = VAULT_DIR ? path.resolve(VAULT_DIR) : path.join(__dirname, "mocha-vault");
 
 // Centralized vault paths
 const VAULT_PATHS = {
-  root: defaultVaultRoot,
-  dailySchedules: resolvedDaily,
-  mainNotes: path.join(defaultVaultRoot, "Main-Notes"),
-  schoolNotes: path.join(defaultVaultRoot, "school-notes"),
+  root: resolvedVaultRoot,
+  scheduleCandidates: [
+    path.join(resolvedVaultRoot, "schedules", "daily"),
+    path.join(resolvedVaultRoot, "schdules", "daily"),
+  ],
+  mainNotes: path.join(resolvedVaultRoot, "Main-Notes"),
+  schoolNotes: path.join(resolvedVaultRoot, "school-notes"),
 };
+
+/**
+ * Validates that childPath is strictly contained inside parentDir.
+ */
+function isPathInside(childPath, parentDir) {
+  const rel = path.relative(path.resolve(parentDir), path.resolve(childPath));
+  return Boolean(rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+}
 
 // Defensive environment sanitization for model identifier
 const rawModel = process.env.LLM_MODEL || "openrouter/free";
@@ -102,9 +110,9 @@ client.on("shardError", (err, shardId) => console.error(`[Shard ${shardId} Error
 // 2. Dedicated Persona Directory, Memo Store & Dynamic Loader
 // ============================================================================
 
-const PERSONAS_DIR = path.join(defaultVaultRoot, "personas");
-const MEMO_DIR = path.join(defaultVaultRoot, "memo");
-const DEBRIEFS_DIR = path.join(defaultVaultRoot, "debriefs");
+const PERSONAS_DIR = path.join(resolvedVaultRoot, "personas");
+const MEMO_DIR = path.join(resolvedVaultRoot, "memo");
+const DEBRIEFS_DIR = path.join(resolvedVaultRoot, "debriefs");
 
 let activePersonaSlug = "mocha";
 
@@ -415,9 +423,11 @@ async function getVaultNotes() {
 
   const mainPattern = path.join(VAULT_PATHS.mainNotes, "**/*.md").replace(/\\/g, "/");
   const schoolPattern = path.join(VAULT_PATHS.schoolNotes, "**/*.md").replace(/\\/g, "/");
-  const dailyPattern = path.join(VAULT_PATHS.dailySchedules, "**/*.md").replace(/\\/g, "/");
+  const schedulePatterns = VAULT_PATHS.scheduleCandidates.map((d) =>
+    path.join(d, "**/*.md").replace(/\\/g, "/")
+  );
 
-  const files = await fg([mainPattern, schoolPattern, dailyPattern], { onlyFiles: true });
+  const files = await fg([mainPattern, schoolPattern, ...schedulePatterns], { onlyFiles: true });
   const relativeList = files.map((f) => path.relative(VAULT_PATHS.root, f));
 
   noteIndexCache.clear();
@@ -451,8 +461,7 @@ function resolveNotePath(noteInput) {
   }
 
   const fullPath = path.resolve(VAULT_PATHS.root, targetRel);
-  const relativeToRoot = path.relative(VAULT_PATHS.root, fullPath);
-  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+  if (!isPathInside(fullPath, VAULT_PATHS.root)) {
     throw new Error("security exception: directory traversal attempted.");
   }
 
@@ -525,29 +534,25 @@ async function insertIntoSection(relativePath, targetHeading, newText) {
 }
 
 /**
- * Locates today's daily schedule note and computes completion statistics.
+ * Locates the daily schedule note for targetDate (or today) and computes completion statistics.
  */
-async function getDailyScheduleStats() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const today = `${year}-${month}-${day}`;
+async function getDailyScheduleStats(targetDate = null) {
+  const dateStr = targetDate || formatDateString(new Date());
 
-  const pattern = path.join(VAULT_PATHS.dailySchedules, `${today}*.md`).replace(/\\/g, "/");
-  let matches = await fg([pattern], { onlyFiles: true });
-  if (matches.length === 0) {
-    const altDir = VAULT_PATHS.dailySchedules.includes("schdules")
-      ? path.join(VAULT_PATHS.root, "schedules", "daily")
-      : path.join(VAULT_PATHS.root, "schdules", "daily");
-    matches = await fg([path.join(altDir, `${today}*.md`).replace(/\\/g, "/")], { onlyFiles: true });
+  let filePath = null;
+  for (const dir of VAULT_PATHS.scheduleCandidates) {
+    const pattern = path.join(dir, `${dateStr}*.md`).replace(/\\/g, "/");
+    const matches = await fg([pattern], { onlyFiles: true });
+    if (matches.length > 0) {
+      filePath = matches[0];
+      break;
+    }
   }
 
-  if (matches.length === 0) {
+  if (!filePath) {
     return null;
   }
 
-  const filePath = matches[0];
   const content = await fs.readFile(filePath, "utf-8");
 
   const uncheckedMatches = content.match(/^\s*-\s*\[\s*\]/gm) || [];
@@ -562,7 +567,7 @@ async function getDailyScheduleStats() {
 
   return {
     filePath,
-    date: today,
+    date: dateStr,
     uncheckedCount: uncheckedMatches.length,
     checkedCount: checkedMatches.length,
     totalCount: uncheckedMatches.length + checkedMatches.length,
@@ -1099,10 +1104,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.deferReply();
       const targetName = path.basename(interaction.options.getString("name", true).trim().toLowerCase(), ".md");
       const targetFile = path.resolve(PERSONAS_DIR, `${targetName}.md`);
-      const relPersona = path.relative(PERSONAS_DIR, targetFile);
-      if (relPersona.startsWith("..") || path.isAbsolute(relPersona)) {
-        await interaction.editReply("invalid persona name.");
-        return;
+      if (!isPathInside(targetFile, PERSONAS_DIR)) {
+        throw new Error("security exception: invalid persona path.");
       }
 
       try {
@@ -1147,9 +1150,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
 
         const memoPath = path.resolve(MEMO_DIR, `${slug}.md`);
-        const relMemo = path.relative(MEMO_DIR, memoPath);
-        if (relMemo.startsWith("..") || path.isAbsolute(relMemo)) {
-          throw new Error("security exception: invalid memo filename.");
+        if (!isPathInside(memoPath, MEMO_DIR)) {
+          throw new Error("security exception: invalid memo path.");
         }
 
         const dateStr = formatDateString(new Date());
@@ -1186,8 +1188,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       try {
         const slug = path.basename(memoInput, ".md");
         const memoPath = path.resolve(MEMO_DIR, `${slug}.md`);
-        const relMemo = path.relative(MEMO_DIR, memoPath);
-        if (relMemo.startsWith("..") || path.isAbsolute(relMemo)) {
+        if (!isPathInside(memoPath, MEMO_DIR)) {
           throw new Error("security exception: invalid memo path.");
         }
 
@@ -1237,8 +1238,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       try {
         const slug = path.basename(memoInput, ".md");
         const memoPath = path.resolve(MEMO_DIR, `${slug}.md`);
-        const relMemo = path.relative(MEMO_DIR, memoPath);
-        if (relMemo.startsWith("..") || path.isAbsolute(relMemo)) {
+        if (!isPathInside(memoPath, MEMO_DIR)) {
           throw new Error("security exception: invalid memo path.");
         }
 
@@ -1527,21 +1527,20 @@ async function checkMidnightDebrief() {
       const yesterdayStr = formatDateString(yesterday);
 
       // Locate yesterday's daily schedule note
-      const pattern = path.join(VAULT_PATHS.dailySchedules, `${yesterdayStr}*.md`).replace(/\\/g, "/");
-      let matches = await fg([pattern], { onlyFiles: true });
-      if (matches.length === 0) {
-        const altDir = VAULT_PATHS.dailySchedules.includes("schdules")
-          ? path.join(VAULT_PATHS.root, "schedules", "daily")
-          : path.join(VAULT_PATHS.root, "schdules", "daily");
-        matches = await fg([path.join(altDir, `${yesterdayStr}*.md`).replace(/\\/g, "/")], { onlyFiles: true });
+      let schedulePath = null;
+      for (const dir of VAULT_PATHS.scheduleCandidates) {
+        const pattern = path.join(dir, `${yesterdayStr}*.md`).replace(/\\/g, "/");
+        const matches = await fg([pattern], { onlyFiles: true });
+        if (matches.length > 0) {
+          schedulePath = matches[0];
+          break;
+        }
       }
 
-      if (matches.length === 0) {
+      if (!schedulePath) {
         console.log(`[Midnight Debrief] No schedule note found for ${yesterdayStr}. Skipping.`);
         return;
       }
-
-      const schedulePath = matches[0];
       const content = await fs.readFile(schedulePath, "utf-8");
 
       const checked = (content.match(/^\s*-\s*\[[xX]\]\s*([^\n]+)/gm) || []).map((t) => t.trim());
@@ -1620,7 +1619,7 @@ client.once(Events.ClientReady, async () => {
   console.log("==================================================");
   console.log(`[Gateway] Mocha El Copiloto online! Logged in as ${client.user.tag}`);
   console.log(`[Vault] Root: ${VAULT_PATHS.root}`);
-  console.log(`[Vault] Daily: ${VAULT_PATHS.dailySchedules}`);
+  console.log(`[Vault] Daily Candidates: ${VAULT_PATHS.scheduleCandidates.join(", ")}`);
   console.log(`[Vault] Main: ${VAULT_PATHS.mainNotes}`);
   console.log(`[Vault] School: ${VAULT_PATHS.schoolNotes}`);
   console.log(`[Model] Primary: ${cleanModel} | Vision: ${VISION_MODEL}`);
