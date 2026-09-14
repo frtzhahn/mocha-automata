@@ -1,0 +1,36 @@
+name: CI Engine Validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-syntax:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Validate Disceptatio Syntax
+        run: node --check packages/disceptatio/bot.js
+
+      - name: Validate Eeper Syntax
+        run: node --check packages/eeper/bot.js
+
+      - name: Validate Mocha Copiloto Syntax
+        run: node --check packages/mocha-copiloto/bot.js
