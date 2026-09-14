@@ -44,7 +44,11 @@ Grant Termux access to shared device storage (necessary if reading or writing to
 * **Use Case:** Mandatory for hosting network daemons that maintain continuous WebSocket connections (such as Discord Gateway).
 * **Distribution Availability:** Termux package environment.
 
-*Note: You must also disable Android's OS-level Battery Optimization for Termux in Android Settings (`Settings > Apps > Termux > Battery > Unrestricted`). On Android 12+, disable the Phantom Process Killer via ADB if hosting multiple concurrent processes: `adb shell "/system/bin/device_config put activity_manager max_phantom_processes 2147483647"`.*
+*Note: Disable Android's OS-level Battery Optimization for Termux in Android Settings (`Settings > Apps > Termux > Battery > Unrestricted`). On Android 12+, disable the Phantom Process Killer via ADB if hosting multiple concurrent processes:*
+```bash
+# Execute this command from a host computer paired to your device via USB/Wireless ADB (not inside Termux):
+adb shell "/system/bin/device_config put activity_manager max_phantom_processes 2147483647"
+```
 
 ---
 

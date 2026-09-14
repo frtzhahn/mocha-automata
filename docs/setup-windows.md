@@ -83,7 +83,7 @@ OPENROUTER_API_KEY="your-openrouter-api-key"
 GIPHY_API_KEY="your-optional-giphy-key"
 LLM_MODEL="openrouter/free"
 VISION_MODEL="openrouter/free"
-VAULT_DIR="C:\Users\username\Documents\ObsidianVault"
+VAULT_DIR="C:/Users/username/Documents/ObsidianVault"
 LOG_CHANNELS="123456789012345678"
 ```
 
@@ -126,7 +126,9 @@ Observe the initialization output:
 
 ## 6. Background Service Persistence (Production)
 
-To keep the bot running after closing PowerShell or logging off Windows, use one of the following process supervision approaches:
+To keep the bot running continuously in the background after closing PowerShell or across reboots, select one of the following process supervision approaches:
+
+> **Persistence Notice:** Option A (PM2) runs in interactive user sessions and starts upon user login. For headless servers where the bot must persist through user logoff or launch before Windows user login, use Option B (NSSM).
 
 ### Option A: PM2 Process Manager
 
