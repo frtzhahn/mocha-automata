@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/frtzhahn/mocha-automata/actions/workflows/ci.yml/badge.svg)](https://github.com/frtzhahn/mocha-automata/actions/workflows/ci.yml)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Mocha Automata** is a production-grade, multi-agent Discord bot suite and Obsidian vault companion engine built with modern Node.js (ECMAScript Modules) and discord.js v14.
 
@@ -138,9 +137,3 @@ node --check packages/disceptatio/bot.js
 node --check packages/eeper/bot.js
 node --check packages/mocha-copiloto/bot.js
 ```
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
