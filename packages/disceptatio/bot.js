@@ -417,8 +417,13 @@ async function archiveDebateToVault({ topic, debaterA, debaterB, transcript }) {
 
   const finalMarkdown = `${frontmatter}\n\n${bodySections.join("\n")}`;
   const tmpPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-  await fs.writeFile(tmpPath, finalMarkdown, "utf-8");
-  await fs.rename(tmpPath, filePath);
+  try {
+    await fs.writeFile(tmpPath, finalMarkdown, "utf-8");
+    await fs.rename(tmpPath, filePath);
+  } catch (err) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw err;
+  }
 
   return { fileName, filePath };
 }
